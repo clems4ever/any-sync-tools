@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -100,110 +101,114 @@ type Network struct {
 	CreationTime time.Time `yaml:"creationTime"`
 }
 
+func CreateConfig(outputDir string, defaults bool) {
+	// Create Network
+	fmt.Println("Creating network...")
+	netKey, _, _ := crypto.GenerateRandomEd25519KeyPair()
+	network = Network{
+		HeartConfig: HeartConfig{
+			Nodes: []Node{},
+		},
+	}
+	network.ID = bson.NewObjectId().Hex()
+	network.NetworkID = netKey.GetPublic().Network()
+	network.CreationTime = time.Now()
+
+	fmt.Println("\033[1m  Network ID:\033[0m", network.NetworkID)
+
+	// Create coordinator node
+	fmt.Println("\nCreating coordinator node...")
+
+	var defaultCoordinatorAddress = "127.0.0.1:4830"
+	var defaultMongoAddress = "mongodb://localhost:27017"
+	var defaultMongoDatabase = "coordinator"
+
+	var coordinatorQs = []*survey.Question{
+		{
+			Name: "address",
+			Prompt: &survey.Input{
+				Message: "Any-Sync Coordinator Node address",
+				Default: defaultCoordinatorAddress,
+			},
+			Validate: survey.Required,
+		},
+		{
+			Name: "mongoConnect",
+			Prompt: &survey.Input{
+				Message: "Mongo connect URI",
+				Default: defaultMongoAddress,
+			},
+			Validate: survey.Required,
+		},
+		{
+			Name: "mongoDB",
+			Prompt: &survey.Input{
+				Message: "Mongo database name",
+				Default: defaultMongoDatabase,
+			},
+			Validate: survey.Required,
+		},
+	}
+
+	answers := struct {
+		Address      string
+		MongoConnect string
+		MongoDB      string
+	}{
+		Address:      defaultCoordinatorAddress,
+		MongoConnect: defaultMongoAddress,
+		MongoDB:      defaultMongoDatabase,
+	}
+
+	if !defaults {
+		err := survey.Ask(coordinatorQs, &answers)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+	}
+
+	coordinatorNode := defaultCoordinatorNode()
+	coordinatorNode.Yamux.ListenAddrs = append(coordinatorNode.Yamux.ListenAddrs, answers.Address)
+	coordinatorNode.Mongo.Connect = answers.MongoConnect
+	coordinatorNode.Mongo.Database = answers.MongoDB
+	coordinatorNode.Account = generateAccount()
+	coordinatorNode.Account.SigningKey, _ = crypto.EncodeKeyToString(netKey)
+
+	addToNetwork(coordinatorNode.GeneralNodeConfig, "coordinator")
+
+	createSyncNode(defaults)
+
+	createFileNode(defaults)
+
+	lastStepOptions(defaults)
+
+	// Create configurations for all nodes
+	fmt.Println("\nCreating config file...")
+
+	coordinatorNode.Network = network
+	createConfigFile(coordinatorNode, filepath.Join(outputDir, "coordinator"))
+
+	for i, syncNode := range syncNodes {
+		syncNode.Network = network
+		createConfigFile(syncNode, filepath.Join(outputDir, "sync_"+strconv.Itoa(i+1)))
+	}
+
+	for i, fileNode := range fileNodes {
+		fileNode.Network = network
+		createConfigFile(fileNode, filepath.Join(outputDir, "file_"+strconv.Itoa(i+1)))
+	}
+
+	createConfigFile(network.HeartConfig, filepath.Join(outputDir, "heart"))
+
+	fmt.Println("Done!")
+}
+
 var create = &cobra.Command{
 	Use:   "create",
 	Short: "Creates new network configuration",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Create Network
-		fmt.Println("Creating network...")
-		netKey, _, _ := crypto.GenerateRandomEd25519KeyPair()
-		network = Network{
-			HeartConfig: HeartConfig{
-				Nodes: []Node{},
-			},
-		}
-		network.ID = bson.NewObjectId().Hex()
-		network.NetworkID = netKey.GetPublic().Network()
-		network.CreationTime = time.Now()
-
-		fmt.Println("\033[1m  Network ID:\033[0m", network.NetworkID)
-
-		// Create coordinator node
-		fmt.Println("\nCreating coordinator node...")
-
-		var defaultCoordinatorAddress = "127.0.0.1:4830"
-		var defaultMongoAddress = "mongodb://localhost:27017"
-		var defaultMongoDatabase = "coordinator"
-
-		var coordinatorQs = []*survey.Question{
-			{
-				Name: "address",
-				Prompt: &survey.Input{
-					Message: "Any-Sync Coordinator Node address",
-					Default: defaultCoordinatorAddress,
-				},
-				Validate: survey.Required,
-			},
-			{
-				Name: "mongoConnect",
-				Prompt: &survey.Input{
-					Message: "Mongo connect URI",
-					Default: defaultMongoAddress,
-				},
-				Validate: survey.Required,
-			},
-			{
-				Name: "mongoDB",
-				Prompt: &survey.Input{
-					Message: "Mongo database name",
-					Default: defaultMongoDatabase,
-				},
-				Validate: survey.Required,
-			},
-		}
-
-		answers := struct {
-			Address      string
-			MongoConnect string
-			MongoDB      string
-		}{
-			Address:      defaultCoordinatorAddress,
-			MongoConnect: defaultMongoAddress,
-			MongoDB:      defaultMongoDatabase,
-		}
-
-		if !defaultsFlag {
-			err := survey.Ask(coordinatorQs, &answers)
-			if err != nil {
-				fmt.Println(err.Error())
-				return
-			}
-		}
-
-		coordinatorNode := defaultCoordinatorNode()
-		coordinatorNode.Yamux.ListenAddrs = append(coordinatorNode.Yamux.ListenAddrs, answers.Address)
-		coordinatorNode.Mongo.Connect = answers.MongoConnect
-		coordinatorNode.Mongo.Database = answers.MongoDB
-		coordinatorNode.Account = generateAccount()
-		coordinatorNode.Account.SigningKey, _ = crypto.EncodeKeyToString(netKey)
-
-		addToNetwork(coordinatorNode.GeneralNodeConfig, "coordinator")
-
-		createSyncNode()
-
-		createFileNode()
-
-		lastStepOptions()
-
-		// Create configurations for all nodes
-		fmt.Println("\nCreating config file...")
-
-		coordinatorNode.Network = network
-		createConfigFile(coordinatorNode, "coordinator")
-
-		for i, syncNode := range syncNodes {
-			syncNode.Network = network
-			createConfigFile(syncNode, "sync_"+strconv.Itoa(i+1))
-		}
-
-		for i, fileNode := range fileNodes {
-			fileNode.Network = network
-			createConfigFile(fileNode, "file_"+strconv.Itoa(i+1))
-		}
-
-		createConfigFile(network.HeartConfig, "heart")
-
-		fmt.Println("Done!")
+		CreateConfig(outputDirFlag, defaultsFlag)
 	},
 }
 var network = Network{}
@@ -219,7 +224,7 @@ func addToNetwork(node GeneralNodeConfig, nodeType string) {
 var syncNodePort = "4430"
 var syncNodes = []SyncNodeConfig{}
 
-func createSyncNode() {
+func createSyncNode(defaults bool) {
 	fmt.Println("\nCreating sync node...")
 
 	var defaultSyncNodeAddress = "127.0.0.1:" + syncNodePort
@@ -241,7 +246,7 @@ func createSyncNode() {
 		defaultSyncNodeAddress,
 	}
 
-	if !defaultsFlag {
+	if !defaults {
 		err := survey.Ask(syncQs, &answers)
 		if err != nil {
 			fmt.Println(err.Error())
@@ -265,7 +270,7 @@ func createSyncNode() {
 var fileNodePort = "4730"
 var fileNodes = []FileNodeConfig{}
 
-func createFileNode() {
+func createFileNode(defaults bool) {
 	fmt.Println("\nCreating file node...")
 
 	var defaultFileNodeAddress = "127.0.0.1:" + fileNodePort
@@ -353,7 +358,7 @@ func createFileNode() {
 		RedisCluster: defaultRedisCluster,
 	}
 
-	if !defaultsFlag {
+	if !defaults {
 		err := survey.Ask(fileQs, &answers)
 		if err != nil {
 			fmt.Println(err.Error())
@@ -380,7 +385,7 @@ func createFileNode() {
 	fileNodePort = strconv.FormatInt(port_num, 10)
 }
 
-func lastStepOptions() {
+func lastStepOptions(defaults bool) {
 	fmt.Println()
 	prompt := &survey.Select{
 		Message: "Do you want to add more nodes?",
@@ -388,16 +393,16 @@ func lastStepOptions() {
 		Default: "No, generate configs",
 	}
 
-	if !defaultsFlag {
+	if !defaults {
 		option := ""
 		survey.AskOne(prompt, &option, survey.WithValidator(survey.Required))
 		switch option {
 		case "Add sync-node":
-			createSyncNode()
-			lastStepOptions()
+			createSyncNode(false)
+			lastStepOptions(false)
 		case "Add file-node":
-			createFileNode()
-			lastStepOptions()
+			createFileNode(false)
+			lastStepOptions(false)
 		default:
 			return
 		}

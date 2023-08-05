@@ -7,6 +7,7 @@ import (
 )
 
 var defaultsFlag bool
+var outputDirFlag string
 
 var rootCmd = &cobra.Command{
 	Use:   "anyconf",
@@ -22,5 +23,6 @@ func Execute() {
 
 func init() {
 	create.Flags().BoolVar(&defaultsFlag, "defaults", false, "generate configuration files using default parameters")
+	create.Flags().StringVar(&outputDirFlag, "output-dir", ".", "directory where the config files are generated")
 	rootCmd.AddCommand(create)
 }
