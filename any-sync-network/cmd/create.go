@@ -68,17 +68,26 @@ type SyncNodeConfig struct {
 	} `yaml:"log"`
 }
 
+type Credentials struct {
+	AccessKey string `yaml:"accessKey"`
+	SecretKey string `yaml:"secretKey"`
+}
+
+type S3Store struct {
+	Endpoint       string      `yaml:"endpoint,omitempty"`
+	Region         string      `yaml:"region"`
+	Profile        string      `yaml:"profile"`
+	Bucket         string      `yaml:"bucket"`
+	MaxThreads     int         `yaml:"maxThreads"`
+	Credentials    Credentials `yaml:"credentials,omitempty"`
+	ForcePathStyle bool        `yaml:"forcePathStyle"`
+}
+
 type FileNodeConfig struct {
 	GeneralNodeConfig        `yaml:".,inline"`
-	NetworkUpdateIntervalSec int `yaml:"networkUpdateIntervalSec"`
-	S3Store                  struct {
-		Endpoint   string `yaml:"endpoint,omitempty"`
-		Region     string `yaml:"region"`
-		Profile    string `yaml:"profile"`
-		Bucket     string `yaml:"bucket"`
-		MaxThreads int    `yaml:"maxThreads"`
-	} `yaml:"s3Store"`
-	Redis struct {
+	NetworkUpdateIntervalSec int     `yaml:"networkUpdateIntervalSec"`
+	S3Store                  S3Store `yaml:"s3Store"`
+	Redis                    struct {
 		IsCluster bool   `yaml:"isCluster"`
 		URL       string `yaml:"url"`
 	} `yaml:"redis"`
@@ -515,13 +524,7 @@ func defaultFileNode() FileNodeConfig {
 	return FileNodeConfig{
 		GeneralNodeConfig:        defaultGeneralNode(),
 		NetworkUpdateIntervalSec: 600,
-		S3Store: struct {
-			Endpoint   string "yaml:\"endpoint,omitempty\""
-			Region     string "yaml:\"region\""
-			Profile    string "yaml:\"profile\""
-			Bucket     string "yaml:\"bucket\""
-			MaxThreads int    "yaml:\"maxThreads\""
-		}{
+		S3Store: S3Store{
 			MaxThreads: 16,
 		},
 		Redis: struct {
